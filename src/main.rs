@@ -1,6 +1,10 @@
+use std::io::{stdout, Write};
 use termion::{*, color::{Color}};
 
+const SIZE_SQUARE_PRINT:u16 = 3;  
 //"\x1b[2J"
+
+
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -31,16 +35,20 @@ impl Piece {
             Piece::Bking | Piece::Wking => {"K".to_string()}
         }
     }
-    fn print(p:Piece, cd: (&dyn Color, &dyn Color), final_pos:(u16,u16)){
+
+
+    // /!\ static sized
+    fn print(p:Piece, cd: (&dyn Color, &dyn Color), begin_pos:(u16,u16)){
+        
+        print!("{}", termion::cursor::Goto(begin_pos.0, begin_pos.1));
         
         print!("{}",termion::color::Bg(cd.0));
         print!("{}",termion::color::Fg(cd.1));
-        print!(" ");
-        print!("{}", p.to_string());
-        print!(" ");
+        print!("   {}{}", termion::cursor::Left(3), termion::cursor::Down(1));
+        print!(" {} {}{}", p.to_string(), termion::cursor::Left(3), termion::cursor::Down(1));
+        print!("   ");
 
 
-        //print!("{}", termion::cursor::Goto(final_pos.0, final_pos.1));
         return ();
     }
 }
@@ -56,32 +64,45 @@ impl Grid {
             data: vec![vec![Piece::Wking; 8]; 8]
         }
     }
+
+    fn get_next_coord(i:u16,j:u16, s:u16 ) -> (u16,u16) {
+
+        let x:u16 = 1 + (j)*s;
+        let y:u16 = 1 + (i)*s;
+        return (x , y)
+    }
+
     fn print(self) {
         
         print!("{}", termion::cursor::Goto(1,1));
         let mut overlay_num = 8;
 
         let mut cpt: u16 = 0;
+        
         for i in 0..self.size {
             for j in 0..self.size {
                 Piece::print(self.data[i][j], match cpt%2 {
                     0 => (&color::LightMagenta,&color::Cyan),
                     _ => (&color::White,&color::Black), 
-                }, ((1+(cpt*3))%27, (i + 1).try_into().unwrap()));
+                }, Grid::get_next_coord(i.try_into().unwrap(),j.try_into().unwrap(), SIZE_SQUARE_PRINT));
+                //print!("{:#?}",Grid::get_next_coord(i.try_into().unwrap(), j.try_into().unwrap(), SIZE_SQUARE_PRINT));
+                stdout().flush().unwrap();
                 cpt += 1;
+                
             }
             cpt += 1;
-            print!("{}",termion::color::Bg(termion::color::Black));
-            print!("{}",termion::color::Fg(termion::color::White));
-            println!(" - {}", overlay_num);
+            print!("{}{}{}-{}", termion::cursor::Up(1), termion::color::Fg(termion::color::White), termion::color::Bg(termion::color::Black), overlay_num);
+            //print!("{}",termion::color::Fg(termion::color::White));
+            //print!("-{}", overlay_num);
             overlay_num -= 1;
         }
+        print!("{}", termion::cursor::Goto(1,1 + (8*3)));
         println!(" |  |  |  |  |  |  |  | ");
         println!(" A  B  C  D  E  F  G  H ");
     }
 }
 fn main() {
-    println!("Hello, world!");
+    //println!("Hello, world!");
     let gride:Grid = Grid::new_empty();
     print!("{}",termion::clear::All);    
     gride.print();
@@ -94,3 +115,7 @@ fn main() {
 // 2 Notation translator (a8 -> 1.1 && 1.1 -> a8)
 // 3 Pieces moves
 // 4 rounds
+
+// === scrap === //
+// 
+// ((1+(cpt*3))%27, (i + 1).try_into().unwrap())
