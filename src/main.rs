@@ -1,4 +1,7 @@
-use std::io::{stdin, stdout, Write};
+use std::{
+    io::{stdin, stdout, BufRead, BufReader, Write, BufWriter},
+    net::{SocketAddr, TcpListener, TcpStream}, fmt::format,
+};
 use termion::{color::Color, *};
 
 const SIZE_SQUARE_PRINT: u16 = 5;
@@ -28,6 +31,25 @@ impl Piece {
             termion::cursor::Down(1)
         );
         print!("     ");
+
+        return ();
+    }
+    fn print2(self, cd: (&dyn Color, &dyn Color), begin_pos: (u16, u16), mut connection: &TcpStream) {
+        connection.write_all(format!("{}", termion::cursor::Goto(begin_pos.0, begin_pos.1)).as_bytes()).unwrap();
+        connection.write_all(format!("{}", termion::color::Bg(cd.0)).as_bytes()).unwrap();
+        connection.write_all(format!("{}", termion::color::Fg(cd.1)).as_bytes()).unwrap();
+        connection.write_all(
+            format!("     {}{}",
+            termion::cursor::Left(SIZE_SQUARE_PRINT),
+            termion::cursor::Down(1)
+        ).as_bytes()).unwrap();
+        connection.write_all(
+            format!("  {}  {}{}",
+            self.ptype.to_string(),
+            termion::cursor::Left(SIZE_SQUARE_PRINT),
+            termion::cursor::Down(1)
+        ).as_bytes()).unwrap();
+        connection.write_all("     ".to_string().as_bytes()).unwrap();
 
         return ();
     }
@@ -209,6 +231,54 @@ impl Grid {
         println!("  A    B    C    D    E    F    G    H  ");
     }
 
+    fn print2(&self, mut connection: &TcpStream) {
+        connection.write_all(termion::cursor::Goto(1, 1).to_string().as_bytes()).unwrap();
+        let mut overlay_num = 8;
+
+        let mut cpt: u16 = 0;
+
+        for i in 0..self.size {
+            for j in 0..self.size {
+                //let mut connec:TcpStream = connection.try_clone().unwrap(); 
+                Piece::print2(
+                    self.data[i][j],
+                    (
+                        match cpt % 2 {
+                            0 => &color::LightBlue, //todo getter foreground /
+                            _ => &color::Magenta,
+                        },
+                        match self.data[i][j].color {
+                            PieceColor::Black => &color::Black,
+                            PieceColor::White => &color::White,
+                            _ => &color::Black,
+                        },
+                    ),
+                    Grid::get_next_coord(
+                        i.try_into().unwrap(),
+                        j.try_into().unwrap(),
+                        SIZE_SQUARE_PRINT,
+                    ), connection);
+                //print!("{:#?}",Grid::get_next_coord(i.try_into().unwrap(), j.try_into().unwrap(), SIZE_SQUARE_PRINT));
+                stdout().flush().unwrap();
+                cpt += 1;
+            }
+            cpt += 1;
+            connection.write_all(
+                format!("{}{}{}-{}",
+                termion::cursor::Up(1),
+                termion::color::Fg(termion::color::White),
+                termion::color::Bg(termion::color::Black),
+                overlay_num).as_bytes()
+            ).unwrap();
+            //print!("{}",termion::color::Fg(termion::color::White));
+            //print!("-{}", overlay_num);
+            overlay_num -= 1;
+        }
+        connection.write_all(termion::cursor::Goto(1, 1 + (8 * 3)).to_string().as_bytes()).unwrap();
+        connection.write_all("  |    |    |    |    |    |    |    |  \n".to_string().as_bytes()).unwrap();
+        connection.write_all("  A    B    C    D    E    F    G    H  \n".to_string().as_bytes()).unwrap();
+    }
+
     fn get_piece(&self, pos: (usize, usize)) -> Result<Piece, &'static str> {
         if pos.0 < self.size && pos.1 < self.size {
             Ok(self.data[pos.0][pos.1])
@@ -230,7 +300,7 @@ impl Grid {
                     '6' => 2 as usize,
                     '7' => 1 as usize,
                     '8' => 0 as usize,
-                    _ => return Err(())
+                    _ => return Err(()),
                 },
                 match s.pop().unwrap() {
                     'a' | 'A' => 0 as usize,
@@ -241,7 +311,7 @@ impl Grid {
                     'f' | 'F' => 5 as usize,
                     'g' | 'G' => 6 as usize,
                     'h' | 'H' => 7 as usize,
-                    _ => return Err(())
+                    _ => return Err(()),
                 },
             ))
         } else {
@@ -277,23 +347,81 @@ impl Grid {
     }
 }
 
-fn main() {
-    print!("{}", termion::clear::All);
+fn game(mut connection: TcpStream, _address: SocketAddr) {
+    
     let mut gride: Grid = Grid::new_normal();
-    gride.print();
-    gride
-    .move_piece_to(gride.get_piece((0, 1)).unwrap(), (0, 3))
+    let mut user_input = "Nothing, Your turn !\n".to_string();
+
+    loop {
+
+        
+        //print refreshed grid TODO replace it by print both
+        print!("{}", termion::clear::All);
+        connection.write_all(termion::clear::All.to_string().as_bytes()).unwrap();
+        connection.write_all(termion::cursor::Goto(1,1).to_string().as_bytes()).unwrap();
+        //connection.write_all("GridPlaceholderAfterServerTurn\n".as_bytes()).unwrap();
+        gride.print2(&connection);
+        gride.print();
+        print!("{}", termion::cursor::Down(1));
+        connection.write_all(format!("Server played :{user_input}").as_bytes()).unwrap();
+
+        let mut reader = BufReader::new(&connection);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        //println!("client to self > {line}");
+        println!("Client played : {line}");
+
+        //print refreshed grid TODO replace it by print both
+        connection.write_all(termion::clear::All.to_string().as_bytes()).unwrap();
+        connection.write_all(termion::cursor::Goto(1,1).to_string().as_bytes()).unwrap();
+        //connection.write_all("GridPlaceholderAfterClientTurn\n".as_bytes()).unwrap();
+        gride.print2(&connection);
+        gride.print();
+        connection.write_all(termion::cursor::Down(1).to_string().as_bytes()).unwrap();
+
+
+        let stdin = std::io::stdin();
+        user_input = "".to_string();
+        stdin.read_line(&mut user_input).unwrap();
+        //println!("self to client > {user_input}");
+    }
+}
+
+//TODO print_both(s:string) + refactor de grid.print()
+// NB en fait: 
+// let mut sender = BufWriter
+
+fn main() {
+    let server = TcpListener::bind("127.0.0.1:8080").unwrap();
+    let (mut connection, address) = server.accept().unwrap();
+
+    connection
+    .write_all(termion::clear::All.to_string().as_bytes())
     .unwrap();
-    gride.print();
-    
-    let mut user_input = String::new();
-    let stdin = std::io::stdin();
-    stdin.read_line(&mut user_input);
-    dbg!(&user_input);
-    
-    let piecs = gride.get_piece(Grid::alpha_to_index(user_input).unwrap());
-    println!("Hello, world!");
-    
+    connection
+    .write_all(termion::cursor::Goto(1,1).to_string().as_bytes())
+    .unwrap();
+
+    print!("{}", termion::clear::All);
+    //gride.print();
+
+    game(connection, address);
+
+    // print!("{}", termion::clear::All);
+    // let mut gride: Grid = Grid::new_normal();
+    // gride.print();
+    // gride
+    // .move_piece_to(gride.get_piece((0, 1)).unwrap(), (0, 3))
+    // .unwrap();
+    // gride.print();
+    //
+    // let mut user_input = String::new();
+    // let stdin = std::io::stdin();
+    // stdin.read_line(&mut user_input);
+    // dbg!(&user_input);
+    //
+    // let piecs = gride.get_piece(Grid::alpha_to_index(user_input).unwrap());
+    // println!("Hello, world!");
 }
 
 //===   tests   ===//
@@ -306,10 +434,18 @@ fn main() {
 //      PieceType trait / struct
 // 4 rounds
 //      cursor - keyboard
+// 5 telnet go brr
+// 6 verifs and other boring stuff
+//
 
 // === scrap === //
 //
 // ((1+(cpt*3))%27, (i + 1).try_into().unwrap())
+
+
+// connection
+// .write_all(format!("bonjour, {address:?}\n").as_bytes())
+// .unwrap();
 
 //"\x1b[2J"
 
@@ -348,6 +484,23 @@ fn main() {
 //     }
 // }
 // match cpt % 2 {
-//     0 => (&color::LightBlue, &color::Black), //todo getter foreground /
+//     0 => (&color::LightBlue, &color::Black), // getter foreground /
 //     _ => (&color::Magenta, &color::White),
 // },
+
+// let server = TcpListener::bind("127.0.0.1:8080").unwrap();
+// loop {
+// let (mut connection, address) = server.accept().unwrap();
+//
+// connection
+// .write_all(format!("bonjour, {address:?}\n").as_bytes())
+// .unwrap();
+//
+// let mut reader = BufReader::new(&connection);
+//
+// loop {
+// let mut line = String::new();
+// reader.read_line(&mut line).unwrap();
+// println!("{line}");
+// }
+// }
