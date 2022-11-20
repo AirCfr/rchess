@@ -1,6 +1,7 @@
 use std::{
-    io::{stdin, stdout, BufRead, BufReader, Write, BufWriter},
-    net::{SocketAddr, TcpListener, TcpStream}, fmt::format,
+    fmt::format,
+    io::{empty, stdin, stdout, BufRead, BufReader, BufWriter, Write},
+    net::{SocketAddr, TcpListener, TcpStream}, any::Any,
 };
 use termion::{color::Color, *};
 
@@ -31,36 +32,62 @@ impl Piece {
             termion::cursor::Down(1)
         );
         print!("     ");
+    }
+    fn print2(
+        self,
+        cd: (&dyn Color, &dyn Color),
+        begin_pos: (u16, u16),
+        mut connection: &TcpStream,
+    ) {
+        connection
+            .write_all(format!("{}", termion::cursor::Goto(begin_pos.0, begin_pos.1)).as_bytes())
+            .unwrap();
+        connection
+            .write_all(format!("{}", termion::color::Bg(cd.0)).as_bytes())
+            .unwrap();
+        connection
+            .write_all(format!("{}", termion::color::Fg(cd.1)).as_bytes())
+            .unwrap();
+        connection
+            .write_all(
+                format!(
+                    "     {}{}",
+                    termion::cursor::Left(SIZE_SQUARE_PRINT),
+                    termion::cursor::Down(1)
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        connection
+            .write_all(
+                format!(
+                    "  {}  {}{}",
+                    self.ptype.to_string(),
+                    termion::cursor::Left(SIZE_SQUARE_PRINT),
+                    termion::cursor::Down(1)
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        connection
+            .write_all("     ".to_string().as_bytes())
+            .unwrap();
 
         return ();
     }
-    fn print2(self, cd: (&dyn Color, &dyn Color), begin_pos: (u16, u16), mut connection: &TcpStream) {
-        connection.write_all(format!("{}", termion::cursor::Goto(begin_pos.0, begin_pos.1)).as_bytes()).unwrap();
-        connection.write_all(format!("{}", termion::color::Bg(cd.0)).as_bytes()).unwrap();
-        connection.write_all(format!("{}", termion::color::Fg(cd.1)).as_bytes()).unwrap();
-        connection.write_all(
-            format!("     {}{}",
-            termion::cursor::Left(SIZE_SQUARE_PRINT),
-            termion::cursor::Down(1)
-        ).as_bytes()).unwrap();
-        connection.write_all(
-            format!("  {}  {}{}",
-            self.ptype.to_string(),
-            termion::cursor::Left(SIZE_SQUARE_PRINT),
-            termion::cursor::Down(1)
-        ).as_bytes()).unwrap();
-        connection.write_all("     ".to_string().as_bytes()).unwrap();
 
-        return ();
-    }
-
-    fn can_move_to(self) -> bool {
-        true //todo
+    fn can_move_to(self, size: usize, pos: &(usize, usize)) -> bool {
+        if pos.0 < size && pos.1 < size {
+            true
+        } else {
+            false
+        }
+        //todo king check
     }
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum PieceType {
     Empty,
     Pawn,
@@ -232,14 +259,16 @@ impl Grid {
     }
 
     fn print2(&self, mut connection: &TcpStream) {
-        connection.write_all(termion::cursor::Goto(1, 1).to_string().as_bytes()).unwrap();
+        connection
+            .write_all(termion::cursor::Goto(1, 1).to_string().as_bytes())
+            .unwrap();
         let mut overlay_num = 8;
 
         let mut cpt: u16 = 0;
 
         for i in 0..self.size {
             for j in 0..self.size {
-                //let mut connec:TcpStream = connection.try_clone().unwrap(); 
+                //let mut connec:TcpStream = connection.try_clone().unwrap();
                 Piece::print2(
                     self.data[i][j],
                     (
@@ -257,39 +286,64 @@ impl Grid {
                         i.try_into().unwrap(),
                         j.try_into().unwrap(),
                         SIZE_SQUARE_PRINT,
-                    ), connection);
+                    ),
+                    connection,
+                );
                 //print!("{:#?}",Grid::get_next_coord(i.try_into().unwrap(), j.try_into().unwrap(), SIZE_SQUARE_PRINT));
                 stdout().flush().unwrap();
                 cpt += 1;
             }
             cpt += 1;
-            connection.write_all(
-                format!("{}{}{}-{}",
-                termion::cursor::Up(1),
-                termion::color::Fg(termion::color::White),
-                termion::color::Bg(termion::color::Black),
-                overlay_num).as_bytes()
-            ).unwrap();
+            connection
+                .write_all(
+                    format!(
+                        "{}{}{}-{}",
+                        termion::cursor::Up(1),
+                        termion::color::Fg(termion::color::White),
+                        termion::color::Bg(termion::color::Black),
+                        overlay_num
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
             //print!("{}",termion::color::Fg(termion::color::White));
             //print!("-{}", overlay_num);
             overlay_num -= 1;
         }
-        connection.write_all(termion::cursor::Goto(1, 1 + (8 * 3)).to_string().as_bytes()).unwrap();
-        connection.write_all("  |    |    |    |    |    |    |    |  \n".to_string().as_bytes()).unwrap();
-        connection.write_all("  A    B    C    D    E    F    G    H  \n".to_string().as_bytes()).unwrap();
+        connection
+            .write_all(termion::cursor::Goto(1, 1 + (8 * 3)).to_string().as_bytes())
+            .unwrap();
+        connection
+            .write_all(
+                "  |    |    |    |    |    |    |    |  \n"
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        connection
+            .write_all(
+                "  A    B    C    D    E    F    G    H  \n"
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
     }
 
     fn get_piece(&self, pos: (usize, usize)) -> Result<Piece, &'static str> {
         if pos.0 < self.size && pos.1 < self.size {
             Ok(self.data[pos.0][pos.1])
         } else {
-            Err("Position out of bound")
+            //Err("Position out of bound")
+            Ok(PieceType::Empty.to_piece(PieceColor::Empty, (9, 9)))
         }
     }
 
-    fn alpha_to_index(mut s: String) -> Result<(usize, usize), ()> {
-        if (s.len() == 3) {
-            s.pop().unwrap();
+    fn alpha_to_index(s: &mut String) -> Result<(usize, usize), ()> {
+        if s.len() >= 2 {
+            while (s.len() > 2) {
+                s.pop().unwrap();
+            }
+
             Ok((
                 match s.pop().unwrap() {
                     '1' => 7 as usize,
@@ -300,7 +354,7 @@ impl Grid {
                     '6' => 2 as usize,
                     '7' => 1 as usize,
                     '8' => 0 as usize,
-                    _ => return Err(()),
+                    _ => return Ok((9, 9)),
                 },
                 match s.pop().unwrap() {
                     'a' | 'A' => 0 as usize,
@@ -311,11 +365,12 @@ impl Grid {
                     'f' | 'F' => 5 as usize,
                     'g' | 'G' => 6 as usize,
                     'h' | 'H' => 7 as usize,
-                    _ => return Err(()),
+                    _ => return Ok((9, 9)),
                 },
             ))
         } else {
-            Err(())
+            Ok((9, 9))
+            //I know, I know, cast Err into a special value of Ok is a criminal offense
         }
     }
 
@@ -328,67 +383,164 @@ impl Grid {
     }
 
     fn move_piece_to(&mut self, p: Piece, pos: (usize, usize)) -> Result<Piece, &'static str> {
-        let result = self.get_piece(pos);
-        match result {
-            Ok(_) => match result.clone().unwrap().ptype {
-                _ => {
-                    if (result.unwrap().can_move_to()) {
-                        self.empty_case(p.coords);
-                        self.data[pos.0][pos.1] = p;
-                        result.unwrap().coords = pos;
-                        return result;
-                    } else {
-                        Err("This unit cant go there")
+        if (p.ptype == PieceType::Empty) {
+            return Ok(p);
+        } else {
+            let result = self.get_piece(pos);
+            match result {
+                Ok(_) => match result.clone().unwrap().ptype {
+                    PieceType::Empty => {
+                        if (result.unwrap().can_move_to(self.size, &pos)) {
+                            self.empty_case(p.coords);
+                            self.data[pos.0][pos.1] = p;
+                            result.unwrap().coords = pos;
+                            return Ok(p);
+                        } else {
+                            //Err("This unit cant go there")
+                            Ok(PieceType::Empty.to_piece(PieceColor::Empty, (9, 9)))
+                        }
                     }
-                }
-            },
-            Err(_) => return result,
+                    _ => {
+                        if (result.unwrap().can_move_to(self.size, &pos)) {
+                            self.empty_case(p.coords);
+                            self.data[pos.0][pos.1] = p;
+                            result.unwrap().coords = pos;
+                            return result;
+                        } else {
+                            //Err("This unit cant go there")
+                            Ok(PieceType::Empty.to_piece(PieceColor::Empty, (9, 9)))
+                        }
+                    }
+                },
+                Err(_) => return Ok(PieceType::Empty.to_piece(PieceColor::Empty, (9, 9))),
+            }
         }
     }
 }
 
 fn game(mut connection: TcpStream, _address: SocketAddr) {
-    
     let mut gride: Grid = Grid::new_normal();
     let mut user_input = "Nothing, Your turn !\n".to_string();
+    let mut user_input2 = "".to_string();
+    let mut piece = PieceType::Empty.to_piece(PieceColor::Empty, (9, 9));
 
     loop {
-
-        
-        //print refreshed grid TODO replace it by print both
         print!("{}", termion::clear::All);
-        connection.write_all(termion::clear::All.to_string().as_bytes()).unwrap();
-        connection.write_all(termion::cursor::Goto(1,1).to_string().as_bytes()).unwrap();
-        //connection.write_all("GridPlaceholderAfterServerTurn\n".as_bytes()).unwrap();
+        connection
+            .write_all(termion::clear::All.to_string().as_bytes())
+            .unwrap();
+        connection
+            .write_all(termion::cursor::Goto(1, 1).to_string().as_bytes())
+            .unwrap();
         gride.print2(&connection);
         gride.print();
         print!("{}", termion::cursor::Down(1));
-        connection.write_all(format!("Server played :{user_input}").as_bytes()).unwrap();
+        connection
+            .write_all(format!("Server played :{user_input}").as_bytes())
+            .unwrap();
 
         let mut reader = BufReader::new(&connection);
         let mut line = String::new();
+        let mut line2 = String::new();
         reader.read_line(&mut line).unwrap();
-        //println!("client to self > {line}");
-        println!("Client played : {line}");
+        reader.read_line(&mut line2).unwrap();
+        println!("Client played : {line} to {line2}");
+        piece = gride
+            .move_piece_to(
+                gride
+                    .get_piece(Grid::alpha_to_index(&mut line).unwrap())
+                    .unwrap(),
+                Grid::alpha_to_index(&mut line2).unwrap(),
+            )
+            .unwrap();
+        if piece.ptype == PieceType::Empty {
+            loop {
+                let mut reader = BufReader::new(&connection);
+                let mut line = String::new();
+                let mut line2 = String::new();
+                reader.read_line(&mut line).unwrap();
+                reader.read_line(&mut line2).unwrap();
+                piece = gride
+                    .move_piece_to(
+                        gride
+                            .get_piece(Grid::alpha_to_index(&mut line).unwrap())
+                            .unwrap(),
+                        Grid::alpha_to_index(&mut line2).unwrap(),
+                    )
+                    .unwrap();
+                if piece.ptype != PieceType::Empty {
+                    break;
+                }
+            }
+        }
+        else if piece.ptype == PieceType::King {
+            connection.write_all(format!("Checkmate, this game will close!\n Press a key to confirm").as_bytes()).unwrap();
+            stdout().write_all(format!("Checkmate, this game will close!\n Game will exit on client key press").as_bytes()).unwrap();
 
-        //print refreshed grid TODO replace it by print both
-        connection.write_all(termion::clear::All.to_string().as_bytes()).unwrap();
-        connection.write_all(termion::cursor::Goto(1,1).to_string().as_bytes()).unwrap();
-        //connection.write_all("GridPlaceholderAfterClientTurn\n".as_bytes()).unwrap();
+            let mut reader = BufReader::new(&connection);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            return
+        }
+
+        connection
+            .write_all(termion::clear::All.to_string().as_bytes())
+            .unwrap();
+        connection
+            .write_all(termion::cursor::Goto(1, 1).to_string().as_bytes())
+            .unwrap();
         gride.print2(&connection);
         gride.print();
-        connection.write_all(termion::cursor::Down(1).to_string().as_bytes()).unwrap();
-
+        connection
+            .write_all(termion::cursor::Down(1).to_string().as_bytes())
+            .unwrap();
 
         let stdin = std::io::stdin();
         user_input = "".to_string();
+        user_input2 = "".to_string();
         stdin.read_line(&mut user_input).unwrap();
-        //println!("self to client > {user_input}");
+        stdin.read_line(&mut user_input2).unwrap();
+        piece = gride
+            .move_piece_to(
+                gride
+                    .get_piece(Grid::alpha_to_index(&mut user_input).unwrap())
+                    .unwrap(),
+                Grid::alpha_to_index(&mut user_input2).unwrap(),
+            )
+            .unwrap();
+        if piece.ptype == PieceType::Empty {
+            loop {
+                let stdin = std::io::stdin();
+                user_input = "".to_string();
+                stdin.read_line(&mut user_input).unwrap();
+                piece = gride
+                    .move_piece_to(
+                        gride
+                            .get_piece(Grid::alpha_to_index(&mut user_input).unwrap())
+                            .unwrap(),
+                        Grid::alpha_to_index(&mut user_input2).unwrap(),
+                    )
+                    .unwrap();
+                if piece.ptype != PieceType::Empty {
+                    break;
+                }
+            }
+        }
+        else if piece.ptype == PieceType::King {
+            connection.write_all(format!("Checkmate, this game will close!\n Press a key to confirm").as_bytes()).unwrap();
+            stdout().write_all(format!("Checkmate, this game will close on client key press!\n Game closed").as_bytes()).unwrap();
+            stdout().flush().unwrap();
+
+            let mut reader = BufReader::new(&connection);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            return
+        }
     }
 }
 
 //TODO print_both(s:string) + refactor de grid.print()
-// NB en fait: 
+// NB en fait:
 // let mut sender = BufWriter
 
 fn main() {
@@ -396,11 +548,11 @@ fn main() {
     let (mut connection, address) = server.accept().unwrap();
 
     connection
-    .write_all(termion::clear::All.to_string().as_bytes())
-    .unwrap();
+        .write_all(termion::clear::All.to_string().as_bytes())
+        .unwrap();
     connection
-    .write_all(termion::cursor::Goto(1,1).to_string().as_bytes())
-    .unwrap();
+        .write_all(termion::cursor::Goto(1, 1).to_string().as_bytes())
+        .unwrap();
 
     print!("{}", termion::clear::All);
     //gride.print();
@@ -441,7 +593,6 @@ fn main() {
 // === scrap === //
 //
 // ((1+(cpt*3))%27, (i + 1).try_into().unwrap())
-
 
 // connection
 // .write_all(format!("bonjour, {address:?}\n").as_bytes())
@@ -504,3 +655,4 @@ fn main() {
 // println!("{line}");
 // }
 // }
+// print!("> {} ,{:?},{:?},{:?},{:?}", line.len(), line.pop(), line.pop(), line.pop(), line.pop(),);
